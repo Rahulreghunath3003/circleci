@@ -1,17 +1,92 @@
 version: 2.1
+
 jobs:
   build:
     docker:
-      - image: cimg/base:2021.04
+      - image: cimg/docker:latest
     steps:
       - checkout
       - run:
-          name: The First Step
+          name: Build Docker Image
           command: |
-            echo 'Hello World!'
-            echo 'This is the delivery pipeline'
+            docker build -t my-app:latest .
+
+  push_to_ecr:
+    docker:
+      - image: cimg/docker:latest
+    steps:
       - run:
-          name: The Second Step
+          name: Login to ECR
           command: |
-            ls -al
-            echo '^^^The files in your repo^^^'
+            echo "$AWS_ACCESS_KEY_ID" | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+      - run:
+          name: Push Docker Image
+          command: |
+            docker tag my-app:latest $AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
+            docker push $AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
+
+  terraform_apply:
+    docker:
+      - image: hashicorp/terraform:latest
+    steps:
+      - checkout
+      - run:
+          name: Terraform Init
+          command: |
+            cd terraform
+            terraform init
+      - run:
+          name: Terraform Apply
+          command: |
+            cd terraform
+            terraform apply -auto-approve
+
+  deploy:
+    docker:
+      - image: alpine:3.15
+    steps:
+      - run:
+          name: Deploy using Nomad
+          command: |
+            echo "Deploying using Nomad..."
+            cat <<EOF > my-app.nomad
+            job "my-app" {
+              datacenters = ["dc1"]
+              type = "service"
+
+              group "app" {
+                task "web" {
+                  driver = "docker"
+
+                  config {
+                    image = "$AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/my-app:latest"
+                    port_map {
+                      http = 80
+                    }
+                  }
+
+                  service {
+                    name = "my-app"
+                    port = "http"
+                  }
+                }
+              }
+            }
+            EOF
+
+            nomad job run my-app.nomad
+
+workflows:
+  version: 2
+  build_and_deploy:
+    jobs:
+      - build
+      - push_to_ecr:
+          requires:
+            - build
+      - terraform_apply:
+          requires:
+            - push_to_ecr
+      - deploy:
+          requires:
+            - terraform_apply
