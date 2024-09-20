@@ -50,29 +50,29 @@ jobs:
           command: |
             echo "Deploying using Nomad..."
             cat <<EOF > my-app.nomad
-            job "my-app" {
-              datacenters = ["dc1"]
-              type = "service"
+job "my-app" {
+  datacenters = ["dc1"]
+  type = "service"
 
-              group "app" {
-                task "web" {
-                  driver = "docker"
+  group "app" {
+    task "web" {
+      driver = "docker"
 
-                  config {
-                    image = "$AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/my-app:latest"
-                    port_map {
-                      http = 80
-                    }
-                  }
+      config {
+        image = "$AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/my-app:latest"
+        port_map {
+          http = 80
+        }
+      }
 
-                  service {
-                    name = "my-app"
-                    port = "http"
-                  }
-                }
-              }
-            }
-            EOF
+      service {
+        name = "my-app"
+        port = "http"
+      }
+    }
+  }
+}
+EOF
 
             nomad job run my-app.nomad
 
@@ -90,3 +90,4 @@ workflows:
       - deploy:
           requires:
             - terraform_apply
+
