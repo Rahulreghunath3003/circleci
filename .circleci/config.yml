@@ -1,93 +1,50 @@
 version: 2.1
 
+executors:
+  default:
+    docker:
+      - image: circleci/python:3.8  # You can choose an appropriate image for your environment
+
 jobs:
   build:
-    docker:
-      - image: cimg/docker:latest
+    executor: default
     steps:
-      - checkout
+      - checkout  # Checkout your code
+      
       - run:
-          name: Build Docker Image
+          name: Generate Nomad Job File
           command: |
-            docker build -t my-app:latest .
-
-  push_to_ecr:
-    docker:
-      - image: cimg/docker:latest
-    steps:
-      - run:
-          name: Login to ECR
-          command: |
-            echo "$AWS_ACCESS_KEY_ID" | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com
-      - run:
-          name: Push Docker Image
-          command: |
-            docker tag my-app:latest $AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/my-app:latest
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/my-app:latest
-
-  terraform_apply:
-    docker:
-      - image: hashicorp/terraform:latest
-    steps:
-      - checkout
-      - run:
-          name: Terraform Init
-          command: |
-            cd terraform
-            terraform init
-      - run:
-          name: Terraform Apply
-          command: |
-            cd terraform
-            terraform apply -auto-approve
-
-  deploy:
-    docker:
-      - image: alpine:3.15
-    steps:
-      - run:
-          name: Deploy using Nomad
-          command: |
-            echo "Deploying using Nomad..."
-            cat > my-app.nomad <<EOF
-            job "my-app" {
+            echo 'job "example" {
               datacenters = ["dc1"]
-              type = "service"
+              type = "batch"
 
-              group "app" {
-                task "web" {
-                  driver = "docker"
+              group "example" {
+                task "example" {
+                  driver = "raw_exec"
 
                   config {
-                    image = "$AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/my-app:latest"
-                    port_map {
-                      http = 80
-                    }
-                  }
-
-                  service {
-                    name = "my-app"
-                    port = "http"
+                    command = "echo"
+                    args = ["Hello, Nomad!"]
                   }
                 }
               }
-            }
-            EOF
+            }' > file.hcl  # Create the Nomad job file
 
-            nomad job run my-app.nomad
+      - persist_to_workspace:
+          root: .
+          paths:
+            - file.hcl  # Store the job file as an artifact
+
+      - run:
+          name: Upload Artifact to CircleCI
+          command: |
+            echo "This step is just to show you how to upload an artifact, no actual upload is done here."
+            
+      - store_artifacts:
+          path: file.hcl  # Store the file.hcl as an artifact for future jobs
 
 workflows:
   version: 2
-  build_and_deploy:
+  build:
     jobs:
       - build
-      - push_to_ecr:
-          requires:
-            - build
-      - terraform_apply:
-          requires:
-            - push_to_ecr
-      - deploy:
-          requires:
-            - terraform_apply
-
